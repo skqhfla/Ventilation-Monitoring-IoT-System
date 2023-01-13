@@ -6,17 +6,25 @@
 #include <unistd.h>
 #include <string.h>
 #include "MQTTClient.h"
+#include <pthread.h>
 
 #define MAX_TIME 83
 #define DHT11PIN 7
 //~ #define DHT11PIN 25
 
+char server_serial[1024];
+char * node_serial = "th_3";
+char init_topic[1024];
+char ACK_topic[1024];
+char pub_topic[1024];
+int ACK_arrived = 0;
 int dht11_val[5] = {0,0,0,0,0};
 int dht11_temp[5] = {0,0,0,0,0};
 float farenheit_temp;
 MQTTClient client;
 MQTTClient_message pubmsg = MQTTClient_message_initializer;
 MQTTClient_deliveryToken token;
+pthread_mutex_t mutex;
 
 void dht11_read_val()
 {
@@ -71,35 +79,103 @@ void dht11_read_val()
       pubmsg.payloadlen = strlen(temp);
       pubmsg.qos = 1;
       pubmsg.retained = 0;
-      MQTTClient_publishMessage(client, "Arise/th3", &pubmsg, &token);
+      MQTTClient_publishMessage(client, pub_topic, &pubmsg, &token);
   }
+
+}
+
+void get_server_serial() {
+	printf("Enter the server's serial number: ");
+	scanf("%s", server_serial);
+
+	strcpy(ACK_topic, server_serial);
+	strcpy(pub_topic, server_serial);
+	strcpy(init_topic, server_serial);
+
+	strcat(ACK_topic, "/ACK/");
+	strcat(ACK_topic, node_serial);
+
+	strcat(pub_topic, "/");
+	strcat(pub_topic, node_serial);
+
+	strcat(init_topic, "/init");
+}
+
+int ack_arrived_callback(void * context, char * topicName, int topicLen, MQTTClient_message * message) {
+	
+	pthread_mutex_lock(&mutex);
+
+	ACK_arrived = 1;
+
+	pthread_mutex_unlock(&mutex);
+	
+	MQTTClient_freeMessage(&message);
+	MQTTClient_free(topicName);
+	return 1;	
+}
+
+void connect_server() {
+	MQTTClient_connectOptions conn_opts = MQTTClient_connectOptions_initializer;
+	int rc = MQTTClient_create(&client, server_serial, node_serial, MQTTCLIENT_PERSISTENCE_NONE, NULL);
+	MQTTClient_setCallbacks(client, NULL, NULL, ack_arrived_callback, NULL);
+
+	if ((rc = MQTTClient_connect(client, &conn_opts)) != MQTTCLIENT_SUCCESS) {
+        	printf("Failed to connect, return code %d\n", rc);
+		while(rc != MQTTCLIENT_SUCCESS) {
+			rc = MQTTClient_connect(client, &conn_opts);
+		}
+   	 }
+	rc = MQTTClient_subscribe(client, ACK_topic, 1);
+}
+
+void * sensor_pub(void * param) {
+	
+	while(1) {
+	
+		sleep(2);
+		
+		pthread_mutex_lock(&mutex);
+
+		if(ACK_arrived == 1) {
+			pthread_mutex_unlock(&mutex);
+			pthread_exit(0);
+		}
+
+		pubmsg.payload = node_serial;
+     		pubmsg.payloadlen = strlen(node_serial);
+     		pubmsg.qos = 1;
+    		pubmsg.retained = 0;
+    		MQTTClient_publishMessage(client, init_topic, &pubmsg, &token);
+	}
+
+	
 }
 
 
 int main(void) {
-	MQTTClient_connectOptions conn_opts = MQTTClient_connectOptions_initializer;
-	int rc = MQTTClient_create(&client, "ws://broker.hivemq.com:8000", "areaC_temp1", MQTTCLIENT_PERSISTENCE_NONE, NULL);
+	
+	pthread_t tid_init;
+	pthread_attr_t attr;
 
-	if ((rc = MQTTClient_connect(client, &conn_opts)) != MQTTCLIENT_SUCCESS)
-    {
-        printf("Failed to connect, return code %d\n", rc);
-	while(rc != MQTTCLIENT_SUCCESS){
-		rc = MQTTClient_connect(client, &conn_opts);
-	}
-    }
-   
+	pthread_attr_init(&attr);
+	pthread_mutex_init(&mutex, NULL); 
+
+	get_server_serial();
+	connect_server();
+
         
-    if(wiringPiSetup() == -1 ) {
-        printf("return -1 error");    
-        return -1;
-    }
+    	if(wiringPiSetup() == -1 ) {
+       		printf("return -1 error");    
+     	  	return -1;
+    	}
 
-    printf("start dht11_read_val !!!\n");    
-    while(1) {
+	pthread_create(&tid_init, &attr, sensor_pub, NULL);
 
-        dht11_read_val();
-        sleep(1);
-    }
+   	printf("start dht11_read_val !!!\n");    
+   	while(1) {
+        	dht11_read_val();
+    	   	sleep(1);
+   	}
     
-    return 0;
+  	return 0;
 }
