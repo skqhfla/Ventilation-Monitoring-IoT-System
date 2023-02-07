@@ -1,0 +1,277 @@
+<?php include 'inc_head.php'; ?>
+<?php require_once "update_service.php"; ?>
+<!DOCTYPE HTML>
+<!--
+	Massively by HTML5 UP
+	html5up.net | @ajlkn
+	Free for personal and commercial use under the CCA 3.0 license (html5up.net/license)
+-->
+<html>
+
+<head>
+    <title>Manual Page - Ventilation notification service</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+    <link rel="stylesheet" href="assets/css/main.css" />
+    <noscript>
+        <link rel="stylesheet" href="assets/css/noscript.css" />
+    </noscript>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.js" type="text/javascript"></script>
+    <script>
+        var node_num = "<? echo $node;?>";
+        var username = "<? echo $username;?>";
+        mqtt_create(username, node_num);
+
+        var open = 0;
+        var close = 0;
+        var start_learning = 0;
+        var client;
+
+        function mqtt_create(username, node_num) {
+            client = new Paho.MQTT.Client("broker.hivemq.com" /*broker*/, Number(8000) /*port*/, "client-" + Math.round(Math.random(100000000, 1000000000) * 1000000000));
+
+            client.connect({
+                onSuccess: onConnect,
+                keepAliveInterval: 900,
+                mqttVersion: 3
+            });
+
+            function onConnect() {
+                var subscribeOptions = {
+                    qos: 1,
+                };
+
+                console.log("Connected!");
+                client.subscribe(username + "/start_end")
+            }
+
+            client.onConnectionLost = function (responseObject) {
+                console.log("Connection Lost: " + responseObject.errorMessage);
+            }
+
+            client.onMessageArrived = function (message) {
+                var words = message.payloadString.split(' ');
+                if (words[0] == "learning") {
+                    document.getElementById("alarm_message").innerText = "Learning is complete. The accuracy is " + words[1] + "%.";
+                    alert("<?echo change_service();?>"); 
+
+                    setTimeout("location.replace('service.html');", 3000);
+                }
+                else if (words[0] == "dataset") {
+                    document.getElementById("alarm_message").innerText = "Collected all the dataset. Please proceed to the next step.";
+                }
+
+                button_on();
+                console.log("message arrived : " + message.destinationName + " " + message.payloadString);
+            }
+        }
+
+        function get_dataset() {
+            let result = "";
+            for (var i = 0; i < node_num; i++) {
+                if (document.getElementsByName("th")[i].checked == true)
+                    result += '1';
+                else
+                    result += '0';
+            }
+            let msg;
+
+            console.log(parseInt(parseInt(result), 2));
+            if(parseInt(parseInt(result), 2) != 0){
+                msg = "dataset 1";
+            }
+            else
+                msg = "dataset 0";
+
+            document.getElementById('alarm_message').innerText
+                = msg;
+  
+            var message = new Paho.MQTT.Message(msg);
+            message.destinationName = username + "/start";
+            message.qos = 1;
+            client.send(message);
+            button_off();
+        }
+
+        function train() {
+            var message = new Paho.MQTT.Message("learning");
+
+            message.destinationName = username + "/start";
+            message.qos = 1;
+
+            client.send(message);
+
+            button_off();
+            document.getElementById("alarm_message").innerText = "Learning is in progress.";
+        }
+
+        function button_off() {
+            document.getElementById('dataset_button').disabled = true;
+            document.getElementById('learning_button').disabled = true;
+        }
+
+        function button_on() {
+            document.getElementById('dataset_button').disabled = false;
+            document.getElementById('learning_button').disabled = false;
+        }
+
+        function init_done(){
+            var message = new Paho.MQTT.Message("done init");
+            message.destinationName = username + "/init";
+            message.qos = 1;
+
+            client.send(message);
+        }
+
+        function init(){
+            console.log("init");
+            var message = new Paho.MQTT.Message("start init");
+            message.destinationName = username + "/init";
+            message.qos = 1;
+
+            client.send(message);
+        }
+
+        function service(){
+            var message = new Paho.MQTT.Message("start service");
+            message.destinationName = username + "/init";
+            message.qos = 1;
+
+            client.send(message);
+
+            alert("<?echo change_service();?>"); 
+
+            setTimeout("location.replace('service.html');", 3000);
+        }
+    </script>
+</head>
+
+<body class="is-preload">
+
+    <!-- Wrapper -->
+    <div id="wrapper">
+
+        <!-- Header -->
+        <header id="header">
+            <a href="index.html" class="logo">notification</a>
+        </header>
+
+        <!-- Nav -->
+        <nav id="nav">
+            <ul class="links">
+                <li class="active"><a href="index.html">Set service</a></li>
+                <li><a href="manual.html">How to use</a></li>
+            </ul>
+        </nav>
+
+        <!-- Main -->
+        <div id="main">
+            <section class="post">
+                <article>
+                    <header class="major">
+                        <h1>Set Service</h1>
+                        <p></p>
+                </article>
+                <article>
+                    <header>
+                        <!-- <?php if($jb_login && $service == 1) { ?> -->
+                        <script>
+                            location.replace('service.html');
+                        </script>
+                        <!-- <?php } else if ( $jb_login ) { ?> -->
+                        <!-- Post -->
+                        <div style="display: flex; justify-content:space-between"></div>
+                        <script>
+                            for (var i = 1; i <= node_num; i++) {
+                                document.write("<input type=\"checkbox\" id=\"th");
+                                document.write(i);
+                                document.write("\" name=\"th\" value=\"");
+                                document.write(i);
+                                document.write("\"><label for=\"th");
+                                document.write(i);
+                                document.write("\">");
+                                document.write(i);
+                                document.write("</label>");
+                            }
+                        </script>
+                        <br>
+                        <button id="dataset_button" type="button" onclick=get_dataset()>dataset</button>
+                        <button id="learning_button" type="button" onclick=train()>train</button>
+                        <button id="init_button" type="button" onclick=init()>start init</button>
+                        <button id="init_done_button" type="button" onclick=init_done()>done init</button>
+                        <button id="service_button" type="button" onclick=service()>start service</button>
+                        <br>
+                        <div>
+                            <p id="alarm_message" style="text-align: right; padding-left : 163px;"></p>
+                        </div>
+                        <form action="destroy.php" method="POST"><input id="logout" type="submit" value="logout" />
+                        </form>
+        </div>
+
+        <!-- <?php } else { ?> -->
+        <form action="check_user.php" method="POST">
+            <div>
+                <p id="title" style="text-align: right; padding-left : 163px;"> sign in</p>
+            </div>
+            <table>
+                <tr>
+                    <td> <input type="text" name="userid" placeholder="아이디 : " /> </td>
+                </tr>
+                <tr>
+                    <td> <input type="password" name="password" placeholder="비밀번호 : " /> </td>
+                </tr>
+            </table>
+            <input type="submit" value="sign in" />
+        </form>
+        <form action="user.php" method="POST">
+            <div>
+                <p id="title" style="text-align: right; padding-left : 163px;"> sign up</p>
+            </div>
+            <table>
+                <tr>
+                    <td> <input type="text" name="userid" placeholder="아이디 : " /> </td>
+                </tr>
+                <tr>
+                    <td> <input type="password" name="password" placeholder="비밀번호 : " /> </td>
+                </tr>
+                <tr>
+                    <select id="node" name="node">
+                        <option value="1"> 1</option>
+                        <option value="2"> 2</option>
+                        <option value="3"> 3</option>
+                        <option value="4"> 4</option>
+                        <option value="5"> 5</option>
+                        <option value="6"> 6</option>
+                    </select>
+                </tr>
+            </table>
+            <input type="submit" value="sign up" />
+        </form>
+        <!-- <?php } ?> -->
+        </header>
+        </article>
+        </section>
+    </div>
+
+    <!-- Copyright -->
+    <div id="copyright">
+        <ul>
+            <li>&copy; Untitled</li>
+            <li>Design: <a href="https://html5up.net">HTML5 UP</a></li>
+        </ul>
+    </div>
+
+    </div>
+
+    <!-- Scripts -->
+    <script src="assets/js/jquery.min.js"></script>
+    <script src="assets/js/jquery.scrollex.min.js"></script>
+    <script src="assets/js/jquery.scrolly.min.js"></script>
+    <script src="assets/js/browser.min.js"></script>
+    <script src="assets/js/breakpoints.min.js"></script>
+    <script src="assets/js/util.js"></script>
+    <script src="assets/js/main.js"></script>
+
+</body>
+
+</html>
